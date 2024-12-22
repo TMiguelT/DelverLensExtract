@@ -1,4 +1,4 @@
-import { ZipArchive } from "@shortercode/webzip";
+import { ZipArchive, ZipEntry } from "@shortercode/webzip";
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 import { useEffect, useState } from 'react';
 import { CSVLink } from "react-csv";
@@ -41,20 +41,43 @@ async function getScannedCards(dlens: FileList, sqlite3: any, db: any) {
 // Returns a mapping of card IDs to card names
 async function getApkCardTable(apk: FileList, sqlite3: any, db: any) {
 
-  const apkBuffer = await (await ZipArchive.from_blob(apk[0]))
-    .get("res/raw/data.db")
-    ?.get_array_buffer();
+  const apkArchive = await ZipArchive.from_blob(apk[0]);
+  const iterator:Iterator<[file_name: string, entry: ZipEntry]> = apkArchive.files();
+  let dbFileEntry:any = null;
 
-  if (!apkBuffer) {
-    throw new Error("Couldn't read APK");
+  let currentFile:IteratorResult<[file_name: string, entry: ZipEntry], any> = iterator.next();
+
+  while(!currentFile.done && currentFile !== null)
+  {
+    const filename:string = currentFile.value[0];
+
+    if(filename.endsWith(".db")) 
+    {
+      dbFileEntry = currentFile.value[1];
+      break;
+    }
+    currentFile = iterator.next();
   }
 
+  dbFileEntry = false;
+
+  if (!dbFileEntry) {
+    alert("The provided APK file did not contain any *.db file");
+    throw new Error("Couldn't find any .db file in the APK");
+  }
+
+  const databaseBuffer = await dbFileEntry.get_array_buffer();
+
+  if (!databaseBuffer) {
+    alert("Couldn't read the database file from the APK");
+    throw new Error("Couldn't read the database file from the APK");
+  }
   const rc = sqlite3.capi.sqlite3_deserialize(
     db.pointer,
     'main',
-    sqlite3.wasm.allocFromTypedArray(new Uint8Array(apkBuffer)),
-    apkBuffer.byteLength,
-    apkBuffer.byteLength,
+    sqlite3.wasm.allocFromTypedArray(new Uint8Array(databaseBuffer)),
+    databaseBuffer.byteLength,
+    databaseBuffer.byteLength,
     sqlite3.capi.SQLITE_DESERIALIZE_FREEONCLOSE
   );
 
